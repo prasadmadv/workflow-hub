@@ -9,11 +9,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 #[Fillable(['client_id', 'name', 'description', 'type', 'status', 'start_date', 'due_date'])]
 class Project extends Model
 {
-    use SoftDeletes;
+    use HasFactory, SoftDeletes;
 
     protected function casts(): array
     {

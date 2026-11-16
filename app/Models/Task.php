@@ -9,12 +9,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\SoftDeletes;
-
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 #[Fillable(['title', 'description', 'status', 'priority', 'estimated_hours', 'start_date', 'due_date', 'completed_at'])]
-
 class Task extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, HasFactory;
 
     protected function casts(): array
     {

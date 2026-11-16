@@ -6,11 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 #[Fillable(['action', 'properties'])]
 class ActivityLog extends Model
 {
-
+    use HasFactory;
     public $timestamps = false;
 
     protected function casts(): array

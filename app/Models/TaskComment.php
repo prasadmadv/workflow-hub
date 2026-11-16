@@ -7,11 +7,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 #[Fillable(['body'])]
 class TaskComment extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, HasFactory;
 
     public function task(): BelongsTo
     {
