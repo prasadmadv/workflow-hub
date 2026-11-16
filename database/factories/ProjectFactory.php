@@ -42,15 +42,25 @@ class ProjectFactory extends Factory
     /**
      * Indicate that the project belongs to a client.
      */
+
     public function clientProject(): static
     {
-        return $this->state(fn (array $attributes) => [
-            'type' => 'client',
-            'client_id' => Client::factory([
-                'organization_id' => $attributes['organization_id'],
-            ]),
-        ]);
+        return $this
+            ->state([
+                'type' => 'client',
+            ])
+            ->afterCreating(function (Project $project) {
+                if (! $project->client_id) {
+                    $client = Client::factory()->create([
+                        'organization_id' => $project->organization_id,
+                    ]);
+
+                    $project->client()->associate($client);
+                    $project->save();
+                }
+            });
     }
+
 
     /**
      * Indicate that the project is internal.
