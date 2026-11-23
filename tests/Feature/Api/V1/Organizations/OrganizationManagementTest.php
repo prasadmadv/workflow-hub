@@ -12,7 +12,7 @@ class OrganizationManagementTest extends TestCase
 {
     use RefreshDatabase;
 
-    # 1 . Save Organization
+# 1. Save Organization
 
     public function test_authenticated_user_can_create_an_organization(): void
     {
@@ -119,7 +119,7 @@ class OrganizationManagementTest extends TestCase
         }
     }
 
-    # 2. Retrieve Organizations listing
+# 2. Retrieve Organizations listing
 
     public function test_user_can_list_their_active_organizations(): void
     {
@@ -211,7 +211,7 @@ class OrganizationManagementTest extends TestCase
         $response->assertUnauthorized();
     }
 
-    # 3. Show
+# 3. Show
     public function test_authenticated_active_member_can_retrieve_their_organization(): void
     {
         $user = User::factory()->create();
@@ -280,5 +280,184 @@ class OrganizationManagementTest extends TestCase
         $organization = Organization::factory()->create();
         $response = $this->getJson('/api/v1/organizations/'.$organization->id);
         $response->assertUnauthorized();
+    }
+
+# 4. Update
+    public function test_active_member_can_update_organization(): void
+    {
+        $user = User::factory()->create();
+        $organization = Organization::factory()->create(['name' => 'Old Organization Name']);
+        $organization->members()->create([
+            'user_id' => $user->id,
+            'role' => 'owner',
+            'status' => 'active'
+        ]);
+
+        $this->actingAs($user);
+        $response = $this->patchJson('/api/v1/organizations/'.$organization->id, [
+            'name' => 'Updated Organization Name'
+        ])->assertOk()
+        ->assertJsonPath('message', 'Organization updated successfully')
+        ->assertJsonPath('data.id', $organization->id)
+        ->assertJsonPath('data.name', 'Updated Organization Name')
+        ->assertJsonPath(
+            'data.membership.role',
+            'owner'
+        )
+        ->assertJsonPath(
+            'data.membership.status',
+            'active'
+        );
+
+        $this->assertDatabaseHas('organizations', [
+            'id' => $organization->id,
+            'name' => 'Updated Organization Name',
+        ]);
+    }
+
+    public function test_empty_body_leaves_organization_unchanged(): void
+    {
+        $user = User::factory()->create();
+        $organization = Organization::factory()->create(['name' => 'Old Organization Name']);
+        $organization->members()->create([
+            'user_id' => $user->id,
+            'role' => 'owner',
+            'status' => 'active'
+        ]);
+
+        $this->actingAs($user);
+        $response = $this->patchJson('/api/v1/organizations/'.$organization->id, [])->assertOk()
+        ->assertJsonPath('message', 'Organization updated successfully')
+        ->assertJsonPath('data.id', $organization->id)
+        ->assertJsonPath('data.name', 'Old Organization Name')
+        ->assertJsonPath(
+            'data.membership.role',
+            'owner'
+        )
+        ->assertJsonPath(
+            'data.membership.status',
+            'active'
+        );
+
+        $this->assertDatabaseHas('organizations', [
+            'id' => $organization->id,
+            'name' => 'Old Organization Name',
+        ]);
+    }
+
+    public function test_empty_name_returns_validation_error(): void
+    {
+        $user = User::factory()->create();
+        $organization = Organization::factory()->create(['name' => 'Old Organization Name']);
+        $organization->members()->create([
+            'user_id' => $user->id,
+            'role' => 'owner',
+            'status' => 'active'
+        ]);
+
+        $this->actingAs($user);
+        $response = $this->patchJson('/api/v1/organizations/'.$organization->id, ['name' => ''])
+        ->assertUnprocessable();
+
+        $this->assertDatabaseHas('organizations', [
+            'id' => $organization->id,
+            'name' => 'Old Organization Name',
+        ]);
+    }
+
+    public function test_invalid_name_types_and_length_returns_validation_error(): void
+    {
+        $user = User::factory()->create();
+
+        $organization = Organization::factory()->create(['name' => 'Old Organization Name']);
+        $organization->members()->create([
+            'user_id' => $user->id,
+            'role' => 'owner',
+            'status' => 'active'
+        ]);
+
+        $this->actingAs($user);
+        $data = [
+            [], 123, $user, str_repeat('a',266)
+        ];
+        foreach($data as $name)
+        {
+            $response = $this->patchJson('/api/v1/organizations/'.$organization->id, ['name' => $name])
+            ->assertUnprocessable();
+        }
+
+        $this->assertDatabaseHas('organizations', [
+            'id' => $organization->id,
+            'name' => 'Old Organization Name',
+        ]);
+    }
+
+    public function test_guest_cannot_update_organization(): void
+    {
+        $organization = Organization::factory()->create(['name' => 'Old Organization Name']);
+        $response = $this->patchJson('/api/v1/organizations/'.$organization->id)
+        ->assertUnauthorized();
+    }
+
+    public function test_non_member_cannot_update_other_organization(): void
+    {
+        $user = User::factory()->create();
+        $organization = Organization::factory()->create(['name' => 'Old Organization Name']);
+
+        $this->actingAs($user);
+        $response = $this->patchJson(
+            '/api/v1/organizations/'.$organization->id,
+            ['name' => 'Updated Organization Name']
+        )->assertNotFound();
+
+        $this->assertDatabaseHas('organizations', [
+            'id' => $organization->id,
+            'name' => 'Old Organization Name',
+        ]);
+    }
+
+    // 8	Invited member cannot update	404
+    public function test_invited_and_suspended_member_cannot_update_organization(): void
+    {
+        $invitedUser = User::factory()->create();
+        $suspendedUser = User::factory()->create();
+
+        $organization = Organization::factory()->create(['name' => 'Old Organization Name']);
+        $organization->members()->create([
+            'user_id' => $invitedUser->id,
+            'role' => 'owner',
+            'status' => 'invited'
+        ]);
+        $organization->members()->create([
+            'user_id' => $suspendedUser->id,
+            'role' => 'owner',
+            'status' => 'suspended'
+        ]);
+
+        $this->actingAs($invitedUser);
+        $response = $this->patchJson('/api/v1/organizations/'.$organization->id, [
+            'name' => 'Updated Organization Name'
+        ])->assertNotFound();
+
+        $this->actingAs($suspendedUser);
+        $response = $this->patchJson('/api/v1/organizations/'.$organization->id, [
+            'name' => 'Updated Organization Name'
+        ])->assertNotFound();
+
+        $this->assertDatabaseHas('organizations', [
+            'id' => $organization->id,
+            'name' => 'Old Organization Name',
+        ]);
+    }
+
+    // 10	Nonexistent organization returns 404	404
+public function test_non_existent_organization_returns_404(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user);
+        $response = $this->patchJson('/api/v1/organizations/'.random_int(1,100), [
+            'name' => 'Updated Organization Name'
+        ])->assertNotFound();
     }
 }

@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\StoreOrganizationRequest;
+use App\Http\Requests\Api\V1\UpdateOrganizationRequest;
 use App\Http\Resources\Api\V1\OrganizationResource;
+use Illuminate\Http\Request;
 use App\Models\Organization;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Illuminate\Http\Request;
+use Psy\Util\Json;
 
 class OrganizationController extends Controller
 {
@@ -27,10 +29,10 @@ class OrganizationController extends Controller
         {
 
             // create org
-            $organization = Organization::create([
-                'name' => $name,
-                'slug' => $this->generateUniqueSlug($name)
-            ]);
+            $organization = new Organization();
+            $organization->name = $name;
+            $organization->slug = $this->generateUniqueSlug($name);
+            $organization->save();
 
             // create org_memeber
             $membership = $organization->members()->create([
@@ -77,11 +79,11 @@ class OrganizationController extends Controller
         ]);
     }
 
-    public function show(Request $request)
+    public function show(Request $request, string $organizationId)
     {
         $organization = $request->user()
             ->organizations()
-            ->where('organizations.id', $request->route('organization'))
+            ->where('organizations.id', $organizationId)
             ->wherePivot('status','active')
             ->firstOrFail();
 
@@ -95,4 +97,27 @@ class OrganizationController extends Controller
             'data' => OrganizationResource::make($organization)
         ]);
     }
+
+    public function update(UpdateOrganizationRequest $request, string $organizationId)
+    {
+
+        $organization = $request->user()
+            ->organizations()
+            ->where('organizations.id', $organizationId)
+            ->wherePivot('status', 'active')
+            ->firstOrFail();
+
+        $organization->update($request->validated());
+
+        $organization->setAttribute('membership', [
+            'status' => $organization->pivot->status,
+            'role' => $organization->pivot->role,
+        ]);
+
+        return response()->json([
+            'message' => 'Organization updated successfully',
+            'data' => OrganizationResource::make($organization)
+        ]);
+    }
+
 }
