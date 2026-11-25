@@ -21,6 +21,7 @@ Route::middleware('auth:sanctum')->group(function(){
     Route::patch('/v1/organizations/{organization}', [OrganizationController::class, 'update']);
 
     Route::get('/v1/organizations/{organization}/members', [OrganizationMemberController::class, 'index']);
+    Route::post('/v1/organizations/{organization}/members', [OrganizationMemberController::class, 'store']);
 
 
 });
