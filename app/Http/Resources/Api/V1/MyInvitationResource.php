@@ -20,6 +20,7 @@ class MyInvitationResource extends JsonResource
             'organization_name' => $this->organization?->name,
             'role' => $this->role,
             'status' => $this->status,
+            'joined_at' => $this->joined_at ?? null,
             'invited_at' => $this->created_at
         ];
     }

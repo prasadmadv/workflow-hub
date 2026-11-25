@@ -22,4 +22,22 @@ class MyInvitationController extends Controller
             'data' => MyInvitationResource::collection($invitations)
         ]);
     }
+
+    public function accept(Request $request, string $membershipId)
+    {
+        $invitation = $request->user()
+            ->organizationMemberships()
+            ->where('id', $membershipId)
+            ->where('status', 'invited')
+            ->firstOrFail();
+
+        $invitation->status = 'active';
+        $invitation->joined_at = now();
+        $invitation->save();
+
+        return response()->json([
+            'message' => 'Invitation accepted successfully',
+            'data' => MyInvitationResource::make($invitation)
+        ]);
+    }
 }

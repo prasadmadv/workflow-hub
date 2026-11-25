@@ -886,14 +886,286 @@ class OrganizationMemberTest extends TestCase
         ]);
     }
 
-    public function test_guest_cannot_retrieve_invitations():void
+    public function test_guest_cannot_retrieve_invitations(): void
     {
         $response = $this->getJson('/api/v1/my/invitations')
         ->assertUnauthorized();
     }
 
+# Accept Invitation
+    public function test_user_can_accept_their_own_pending_invitation(): void
+    {
+        $user = User::factory()->create();
+        $organization = Organization::factory()->create();
+
+        $membership = OrganizationMember::factory()->create([
+            'organization_id' => $organization->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null,
+        ]);
+
+        $this->actingAs($user);
+
+        $response = $this->postJson(
+            "/api/v1/my/invitations/{$membership->id}/accept"
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('message', 'Invitation accepted successfully')
+            ->assertJsonPath('data.id', $membership->id)
+            ->assertJsonPath('data.status', 'active')
+            ->assertJsonPath('data.role', 'member')
+            ->assertJsonStructure([
+                'data' => [
+                    'joined_at',
+                    'invited_at',
+                ],
+            ]);
+
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $membership->id,
+            'organization_id' => $organization->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'active',
+        ]);
+
+        $this->assertNotNull(
+            $membership->fresh()->joined_at
+        );
+    }
+
+    public function test_user_cannot_accept_another_users_invitation(): void
+    {
+        $userA = User::factory()->create();
+        $userB = User::factory()->create();
+
+        $organization = Organization::factory()->create();
+
+        $membership = OrganizationMember::factory()->create([
+            'organization_id' => $organization->id,
+            'user_id' => $userB->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null,
+        ]);
+
+        $this->actingAs($userA);
+
+        $response = $this->postJson(
+            "/api/v1/my/invitations/{$membership->id}/accept"
+        );
+
+        $response->assertNotFound();
+
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $membership->id,
+            'user_id' => $userB->id,
+            'status' => 'invited',
+            'joined_at' => null,
+        ]);
+    }
+
+    public function test_guest_cannot_accept_an_invitation(): void
+    {
+        $user = User::factory()->create();
+        $organization = Organization::factory()->create();
+
+        $membership = OrganizationMember::factory()->create([
+            'organization_id' => $organization->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null,
+        ]);
+
+        $response = $this->postJson(
+            "/api/v1/my/invitations/{$membership->id}/accept"
+        );
+
+        $response->assertUnauthorized();
+
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $membership->id,
+            'user_id' => $user->id,
+            'status' => 'invited',
+            'joined_at' => null,
+        ]);
+    }
+
+    public function test_user_cannot_accept_an_already_accepted_invitation(): void
+    {
+        $user = User::factory()->create();
+        $organization = Organization::factory()->create();
+
+        $joinedAt = now()->subDays(2);
+
+        $membership = OrganizationMember::factory()->create([
+            'organization_id' => $organization->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'active',
+            'joined_at' => $joinedAt,
+        ]);
+
+        $this->actingAs($user);
+
+        $response = $this->postJson(
+            "/api/v1/my/invitations/{$membership->id}/accept"
+        );
+
+        $response->assertNotFound();
+
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $membership->id,
+            'user_id' => $user->id,
+            'status' => 'active',
+            'joined_at' => $joinedAt,
+        ]);
+    }
+
+    public function test_user_cannot_accept_a_suspended_membership(): void
+    {
+        $user = User::factory()->create();
+        $organization = Organization::factory()->create();
+
+        $joinedAt = now()->subDays(5);
+
+        $membership = OrganizationMember::factory()->create([
+            'organization_id' => $organization->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'suspended',
+            'joined_at' => $joinedAt,
+        ]);
+
+        $this->actingAs($user);
+
+        $response = $this->postJson(
+            "/api/v1/my/invitations/{$membership->id}/accept"
+        );
+
+        $response->assertNotFound();
+
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $membership->id,
+            'user_id' => $user->id,
+            'status' => 'suspended',
+            'joined_at' => $joinedAt,
+        ]);
+    }
+
+    public function test_user_cannot_accept_a_nonexistent_invitation(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user);
+
+        $response = $this->postJson(
+            '/api/v1/my/invitations/999999/accept'
+        );
+
+        $response->assertNotFound();
+
+        $this->assertDatabaseCount('organization_members', 0);
+    }
+
+    public function test_user_can_accept_one_invitation_without_affecting_other_memberships(): void
+    {
+        $user = User::factory()->create();
+
+        $organizationA = Organization::factory()->create();
+        $organizationB = Organization::factory()->create();
+
+        $existingJoinedAt = now()->subDays(10);
+
+        $existingMembership = OrganizationMember::factory()->create([
+            'organization_id' => $organizationA->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'active',
+            'joined_at' => $existingJoinedAt,
+        ]);
+
+        $invitation = OrganizationMember::factory()->create([
+            'organization_id' => $organizationB->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null,
+        ]);
+
+        $this->actingAs($user);
+
+        $response = $this->postJson(
+            "/api/v1/my/invitations/{$invitation->id}/accept"
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('data.id', $invitation->id)
+            ->assertJsonPath('data.status', 'active');
+
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $invitation->id,
+            'organization_id' => $organizationB->id,
+            'user_id' => $user->id,
+            'status' => 'active',
+        ]);
+
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $existingMembership->id,
+            'organization_id' => $organizationA->id,
+            'user_id' => $user->id,
+            'status' => 'active',
+            'joined_at' => $existingJoinedAt,
+        ]);
+    }
+
+    public function test_accepting_invitation_preserves_original_membership_details(): void
+    {
+        $user = User::factory()->create();
+        $organization = Organization::factory()->create();
+
+        $membership = OrganizationMember::factory()->create([
+            'organization_id' => $organization->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null,
+        ]);
+
+        $originalCreatedAt = $membership->created_at;
+
+        $this->actingAs($user);
+
+        $response = $this->postJson(
+            "/api/v1/my/invitations/{$membership->id}/accept"
+        );
+
+        $response->assertOk();
+
+        $updatedMembership = $membership->fresh();
+
+        $this->assertSame($membership->id, $updatedMembership->id);
+        $this->assertSame($organization->id, $updatedMembership->organization_id);
+        $this->assertSame($user->id, $updatedMembership->user_id);
+        $this->assertSame('member', $updatedMembership->role);
+        $this->assertSame('active', $updatedMembership->status);
+
+        $this->assertEquals(
+            $originalCreatedAt,
+            $updatedMembership->created_at
+        );
+
+        $this->assertNotNull($updatedMembership->joined_at);
+    }
 
 
-    # END
+
+
+
+# END
 
 }

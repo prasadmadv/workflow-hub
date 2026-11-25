@@ -30,5 +30,6 @@ Route::middleware('auth:sanctum')->group(function(){
 
     // Personal invitations
     Route::get('/v1/my/invitations', [MyInvitationController::class, 'index']);
+    Route::post('/v1/my/invitations/{membership}/accept', [MyInvitationController::class, 'accept']);
 
 });
