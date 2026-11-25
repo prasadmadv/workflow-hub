@@ -403,4 +403,229 @@ class OrganizationMemberTest extends TestCase
         $this->assertDatabaseCount('organization_members', 1);
 
     }
+
+# My Invitations
+
+    public function test_user_can_retrieve_their_pending_invitations(): void
+    {
+        $owner = User::factory()->create();
+        $organization = Organization::factory()->create();
+        $organization->members()->create([
+            'user_id' => $owner->id,
+            'role' => 'owner',
+            'status' => 'active',
+            'joined_at' => now()
+        ]);
+
+        $invitedMember = User::factory()->create();
+
+        $this->actingAs($owner);
+        $inviteResponse = $this->postJson(
+            '/api/v1/organizations/'.$organization->id.'/members',
+            [
+            'email' => $invitedMember->email
+            ])->assertCreated();
+
+        $invitationId = $inviteResponse->json('data.id');
+
+        $this->actingAs($invitedMember);
+        $response = $this->getJson('/api/v1/my/invitations')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('message', 'Pending invitations retrieved successfully')
+        ->assertJsonPath('data.0.id', $invitationId)
+        ->assertJsonFragment([
+            'organization_id' => $organization->id,
+            'organization_name' => $organization->name,
+            'role' => 'member',
+            'status' => 'invited',
+        ])
+        ->assertJsonStructure([
+            'data' => [
+                '*' => [
+                    'id',
+                    'invited_at',
+                ],
+            ],
+        ]);
+
+        $this->assertDatabaseHas('organization_members', [
+            'organization_id' => $organization->id,
+            'user_id' => $invitedMember->id,
+            'role' => 'member',
+            'status' => 'invited',
+        ]);
+        $this->assertNotFalse(
+            strtotime($response->json('data.0.invited_at'))
+        );
+
+    }
+
+    public function test_user_can_retrieve_only_their_own_pending_invitations(): void
+    {
+        $organizationA = Organization::factory()->create();
+        $ownerA = User::factory()->create();
+        $organizationA->members()->create([
+            'user_id' => $ownerA->id,
+            'role' => 'owner',
+            'status' => 'active',
+            'joined_at' => now()
+        ]);
+
+        $organizationB = Organization::factory()->create();
+        $ownerB = User::factory()->create();
+        $organizationB->members()->create([
+            'user_id' => $ownerB->id,
+            'role' => 'owner',
+            'status' => 'active',
+            'joined_at' => now()
+        ]);
+
+        $invitedMemberForOrganizationA = User::factory()->create();
+        $this->actingAs($ownerA);
+        $inviteResponseForOrganizationA = $this->postJson(
+            '/api/v1/organizations/'.$organizationA->id.'/members',
+            [
+            'email' => $invitedMemberForOrganizationA->email
+            ]
+        )->assertCreated();
+
+        $invitedMemberForOrganizationB = User::factory()->create();
+        $this->actingAs($ownerB);
+        $inviteResponseForOrganizationB = $this->postJson(
+            '/api/v1/organizations/'.$organizationB->id.'/members',
+            [
+            'email' => $invitedMemberForOrganizationB->email
+            ]
+        )->assertCreated();
+
+
+        $invitationIdForOrganizationA = $inviteResponseForOrganizationA->json('data.id');
+        $invitationIdForOrganizationB = $inviteResponseForOrganizationB->json('data.id');
+
+        $this->actingAs($invitedMemberForOrganizationA);
+        $response = $this->getJson('/api/v1/my/invitations')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('message', 'Pending invitations retrieved successfully')
+        ->assertJsonPath('data.0.id', $invitationIdForOrganizationA)
+        ->assertJsonFragment([
+            'organization_id' => $organizationA->id,
+            'organization_name' => $organizationA->name,
+            'role' => 'member',
+            'status' => 'invited',
+        ])
+        ->assertJsonMissing([
+            'organization_id' => $organizationB->id,
+        ])
+        ->assertJsonStructure([
+            'data' => [
+                '*' => [
+                    'id',
+                    'invited_at',
+                ],
+            ],
+        ]);
+
+        $this->assertDatabaseHas('organization_members', [
+            'organization_id' => $organizationA->id,
+            'user_id' => $invitedMemberForOrganizationA->id,
+            'role' => 'member',
+            'status' => 'invited',
+        ]);
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $invitationIdForOrganizationA,
+            'user_id' => $invitedMemberForOrganizationA->id
+        ]);
+        $this->assertNotFalse(
+            strtotime($response->json('data.0.invited_at'))
+        );
+        $this->assertDatabaseHas('organization_members', [
+            'organization_id' => $organizationB->id,
+            'user_id' => $invitedMemberForOrganizationB->id,
+            'role' => 'member',
+            'status' => 'invited',
+        ]);
+
+    }
+
+    public function test_user_retrieves_only_pending_invitations(): void
+    {
+        $invitedMember = User::factory()->create();
+
+        $organizationA = Organization::factory()->create();
+        $organizationB = Organization::factory()->create();
+        $organizationC = Organization::factory()->create();
+
+        $invitationFromOrgA = $organizationA->members()->create([
+            'user_id' => $invitedMember->id, 'role' => 'member', 'status' => 'invited', 'joined_at' => null
+        ]);
+
+        $activeMembership = $organizationB->members()->create([
+            'user_id' => $invitedMember->id, 'role' => 'member', 'status' => 'active', 'joined_at' => now()
+        ]);
+
+        $suspendedMembership = $organizationC->members()->create([
+            'user_id' => $invitedMember->id, 'role' => 'member', 'status' => 'suspended', 'joined_at' => now()
+        ]);
+
+        $this->actingAs($invitedMember);
+        $response = $this->getJson('/api/v1/my/invitations')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('message', 'Pending invitations retrieved successfully')
+        ->assertJsonFragment([
+            'id' => $invitationFromOrgA->id,
+            'organization_id' => $organizationA->id,
+            'organization_name' => $organizationA->name,
+            'role' => 'member',
+            'status' => 'invited'
+        ])
+        ->assertJsonMissing([
+            'id' => $activeMembership->id,
+        ])
+        ->assertJsonMissing([
+            'id' => $suspendedMembership->id,
+        ]);
+
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $invitationFromOrgA->id,
+            'user_id' => $invitedMember->id,
+            'organization_id' => $organizationA->id,
+            'role' => 'member',
+            'status' => 'invited'
+
+        ]);
+
+
+    }
+
+    public function test_user_with_no_pending_invitations_receives_empty_data(): void
+    {
+        $user = User::factory()->create();
+        $organization = Organization::factory()->create();
+        $organization->members()->create([
+            'user_id' => $user->id, 'role' => 'member', 'status' => 'active', 'joined_at' => now()
+        ]);
+
+        $this->actingAs($user);
+        $response = $this->getJson('/api/v1/my/invitations')
+        ->assertOk()
+        ->assertJsonPath('message', 'Pending invitations retrieved successfully')
+        ->assertJsonCount(0, 'data');
+
+        $this->assertDatabaseHas('organization_members', [
+            'user_id' => $user->id,
+            'organization_id' => $organization->id,
+            'status' => 'active',
+        ]);
+    }
+
+    // Guest cannot retrieve invitations
+    public function test_guest_cannot_retrieve_invitations():void
+    {
+        $response = $this->getJson('/api/v1/my/invitations')
+        ->assertUnauthorized();
+    }
+
 }
