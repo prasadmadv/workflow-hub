@@ -1163,8 +1163,162 @@ class OrganizationMemberTest extends TestCase
     }
 
 
+# Decline Invitation
 
+    public function test_user_can_decline_their_own_pending_invitation_without_affecting_other_memberships(): void
+    {
+        $user = User::factory()->create();
+        $invitedOrganization = Organization::factory()->create();
+        $otherOrganization = Organization::factory()->create();
 
+        $invitation = OrganizationMember::factory()->create([
+            'organization_id' => $invitedOrganization->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null,
+        ]);
+
+        $otherJoinedAt = now()->subDays(10);
+        $otherMembership = OrganizationMember::factory()->create([
+            'organization_id' => $otherOrganization->id,
+            'user_id' => $user->id,
+            'role' => 'manager',
+            'status' => 'active',
+            'joined_at' => $otherJoinedAt,
+        ]);
+
+        $this->actingAs($user);
+
+        $this->deleteJson("/api/v1/my/invitations/{$invitation->id}/decline")
+            ->assertOk()
+            ->assertJsonPath('message', 'Invitation declined successfully');
+
+        $this->assertDatabaseMissing('organization_members', [
+            'id' => $invitation->id,
+        ]);
+
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $otherMembership->id,
+            'organization_id' => $otherOrganization->id,
+            'user_id' => $user->id,
+            'role' => 'manager',
+            'status' => 'active',
+            'joined_at' => $otherJoinedAt,
+        ]);
+    }
+
+    public function test_user_cannot_decline_another_users_pending_invitation(): void
+    {
+        $user = User::factory()->create();
+        $invitee = User::factory()->create();
+        $organization = Organization::factory()->create();
+
+        $invitation = OrganizationMember::factory()->create([
+            'organization_id' => $organization->id,
+            'user_id' => $invitee->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null,
+        ]);
+
+        $this->actingAs($user);
+
+        $this->deleteJson("/api/v1/my/invitations/{$invitation->id}/decline")
+            ->assertNotFound();
+
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $invitation->id,
+            'organization_id' => $organization->id,
+            'user_id' => $invitee->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null,
+        ]);
+    }
+
+    public function test_user_cannot_decline_an_active_or_suspended_membership(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        foreach (['active', 'suspended'] as $status) {
+            $organization = Organization::factory()->create();
+            $joinedAt = now()->subDays($status === 'active' ? 2 : 5);
+            $membership = OrganizationMember::factory()->create([
+                'organization_id' => $organization->id,
+                'user_id' => $user->id,
+                'role' => 'member',
+                'status' => $status,
+                'joined_at' => $joinedAt,
+            ]);
+
+            $this->deleteJson("/api/v1/my/invitations/{$membership->id}/decline")
+                ->assertNotFound();
+
+            $this->assertDatabaseHas('organization_members', [
+                'id' => $membership->id,
+                'organization_id' => $organization->id,
+                'user_id' => $user->id,
+                'role' => 'member',
+                'status' => $status,
+                'joined_at' => $joinedAt,
+            ]);
+        }
+    }
+
+    public function test_user_cannot_decline_a_nonexistent_invitation(): void
+    {
+        $user = User::factory()->create();
+        $organization = Organization::factory()->create();
+        $joinedAt = now()->subDays(7);
+        $unrelatedMembership = OrganizationMember::factory()->create([
+            'organization_id' => $organization->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'active',
+            'joined_at' => $joinedAt,
+        ]);
+
+        $this->actingAs($user);
+
+        $this->deleteJson('/api/v1/my/invitations/999999/decline')
+            ->assertNotFound();
+
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $unrelatedMembership->id,
+            'organization_id' => $organization->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'active',
+            'joined_at' => $joinedAt,
+        ]);
+    }
+
+    public function test_guest_cannot_decline_a_pending_invitation(): void
+    {
+        $user = User::factory()->create();
+        $organization = Organization::factory()->create();
+        $invitation = OrganizationMember::factory()->create([
+            'organization_id' => $organization->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null,
+        ]);
+
+        $this->deleteJson("/api/v1/my/invitations/{$invitation->id}/decline")
+            ->assertUnauthorized();
+
+        $this->assertDatabaseHas('organization_members', [
+            'id' => $invitation->id,
+            'organization_id' => $organization->id,
+            'user_id' => $user->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null,
+        ]);
+    }
 
 # END
 

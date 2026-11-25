@@ -40,4 +40,21 @@ class MyInvitationController extends Controller
             'data' => MyInvitationResource::make($invitation)
         ]);
     }
+
+
+    public function decline(Request $request, string $membershipId)
+    {
+        $invitation = $request->user()
+            ->organizationMemberships()
+            ->where('id', $membershipId)
+            ->where('status', 'invited')
+            ->firstOrFail();
+
+        $invitation->delete();
+
+        return response()->json([
+            'message' => 'Invitation declined successfully'
+        ]);
+    }
+
 }
