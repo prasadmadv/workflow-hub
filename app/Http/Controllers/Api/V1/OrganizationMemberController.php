@@ -82,4 +82,26 @@ class OrganizationMemberController extends Controller
                 ),
         ], 201);
     }
+
+    public function cancel(Request $request, string $organizationId, string $membershipId)
+    {
+        $userOwnerMembership = $request->user()->organizationMemberships()
+            ->where('organization_id', $organizationId)
+            ->where('status', 'active')
+            ->where('role', 'owner')
+            ->firstOrFail();
+
+        $organization = $userOwnerMembership->organization;
+
+        $membership = $organization->members()
+            ->where('id', $membershipId)
+            ->where('status', 'invited')
+            ->firstOrFail();
+
+        $membership->delete();
+
+        return response()->json([
+            'message' => 'Membership cancelled successfully'
+        ]);
+    }
 }

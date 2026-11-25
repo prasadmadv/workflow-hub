@@ -404,6 +404,271 @@ class OrganizationMemberTest extends TestCase
 
     }
 
+# Cancel Membership
+
+    public function test_active_owner_can_cancel_a_pending_invitation(): void
+    {
+        $owner = User::factory()->create();
+        $organization = Organization::factory()->create();
+        $organization->members()->create([
+            'user_id' => $owner->id,
+            'role' => 'owner',
+            'status' => 'active',
+            'joined_at' => now()
+        ]);
+
+        $invitedMember = User::factory()->create();
+        $invitedMembership = $organization->members()->create([
+            'user_id' => $invitedMember->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null
+        ]);
+
+        $this->actingAs($owner);
+        $this->deleteJson('/api/v1/organizations/'.$organization->id.'/members/'.$invitedMembership->id)
+            ->assertOk()
+            ->assertJsonPath('message', 'Membership cancelled successfully');
+
+        $this->assertDatabaseCount('organization_members', 1)
+            ->assertDatabaseMissing('organization_members', [
+                'id' => $invitedMembership->id,
+                'user_id' => $invitedMember->id,
+                'organization_id' => $organization->id,
+            ]);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $invitedMember->id,
+        ]);
+    }
+
+    public function test_active_manager_cannot_cancel_a_pending_invitation(): void
+    {
+        $manager = User::factory()->create();
+        $organization = Organization::factory()->create();
+        $organization->members()->create([
+            'user_id' => $manager->id,
+            'role' => 'manager',
+            'status' => 'active',
+            'joined_at' => now()
+        ]);
+
+        $invitedMember = User::factory()->create();
+        $invitedMembership = $organization->members()->create([
+            'user_id' => $invitedMember->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null
+        ]);
+
+        $this->actingAs($manager);
+        $this->deleteJson('/api/v1/organizations/'.$organization->id.'/members/'.$invitedMembership->id)
+            ->assertNotFound();
+
+        $this->assertDatabaseCount('organization_members', 2)
+            ->assertDatabaseHas('organization_members', [
+                'id' => $invitedMembership->id,
+                'user_id' => $invitedMember->id,
+                'organization_id' => $organization->id,
+            ]);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $invitedMember->id,
+        ]);
+    }
+
+    public function test_suspended_owner_cannot_cancel_a_pending_invitation(): void
+    {
+        $owner = User::factory()->create();
+        $organization = Organization::factory()->create();
+        $organization->members()->create([
+            'user_id' => $owner->id,
+            'role' => 'owner',
+            'status' => 'suspended',
+            'joined_at' => now()
+        ]);
+
+        $invitedMember = User::factory()->create();
+        $invitedMembership = $organization->members()->create([
+            'user_id' => $invitedMember->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null
+        ]);
+
+        $this->actingAs($owner);
+        $this->deleteJson('/api/v1/organizations/'.$organization->id.'/members/'.$invitedMembership->id)
+            ->assertNotFound();
+
+        $this->assertDatabaseCount('organization_members', 2)
+            ->assertDatabaseHas('organization_members', [
+                'id' => $invitedMembership->id,
+                'user_id' => $invitedMember->id,
+                'organization_id' => $organization->id,
+            ]);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $invitedMember->id,
+        ]);
+    }
+
+    public function test_unrelated_user_cannot_cancel_a_pending_invitation(): void
+    {
+        $organization = Organization::factory()->create();
+
+        $invitedMember = User::factory()->create();
+        $invitedMembership = $organization->members()->create([
+            'user_id' => $invitedMember->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null
+        ]);
+
+        $unrelatedOrganization = Organization::factory()->create();
+        $unrelatedUser = User::factory()->create();
+        $unrelatedOrganizationOwnership = $unrelatedOrganization->members()->create([
+            'user_id' => $unrelatedUser->id,
+            'role' => 'owner',
+            'status' => 'active',
+            'joined_at' => now()
+        ]);
+
+        $this->actingAs($unrelatedUser);
+        $this->deleteJson('/api/v1/organizations/'.$organization->id.'/members/'.$invitedMembership->id)
+            ->assertNotFound();
+
+        $this->assertDatabaseCount('organization_members', 2)
+            ->assertDatabaseHas('organization_members', [
+                'id' => $invitedMembership->id,
+                'user_id' => $invitedMember->id,
+                'organization_id' => $organization->id,
+            ]);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $invitedMember->id,
+        ]);
+    }
+
+    public function test_guest_cannot_cancel_a_pending_invitation(): void
+    {
+        $organization = Organization::factory()->create();
+        $invitedMember = User::factory()->create();
+        $invitedMembership = $organization->members()->create([
+            'user_id' => $invitedMember->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null
+        ]);
+
+        $this->deleteJson('/api/v1/organizations/'.$organization->id.'/members/'.$invitedMembership->id)
+            ->assertUnauthorized();
+
+        $this->assertDatabaseCount('organization_members', 1)
+            ->assertDatabaseHas('organization_members', [
+                'id' => $invitedMembership->id,
+                'user_id' => $invitedMember->id,
+                'organization_id' => $organization->id,
+            ]);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $invitedMember->id,
+        ]);
+    }
+
+    public function test_owner_cannot_cancel_an_active_or_suspended_membership(): void
+    {
+        $owner = User::factory()->create();
+        $organization = Organization::factory()->create();
+        $organization->members()->create([
+            'user_id' => $owner->id,
+            'role' => 'owner',
+            'status' => 'active',
+            'joined_at' => now()
+        ]);
+
+        $activeMember = User::factory()->create();
+        $activeMembership = $organization->members()->create([
+            'user_id' => $activeMember->id,
+            'role' => 'member',
+            'status' => 'active',
+            'joined_at' => now()
+        ]);
+
+        $suspendedMember = User::factory()->create();
+        $suspendedMembership = $organization->members()->create([
+            'user_id' => $suspendedMember->id,
+            'role' => 'member',
+            'status' => 'suspended',
+            'joined_at' => now()
+        ]);
+
+        $this->actingAs($owner);
+        $this->deleteJson('/api/v1/organizations/'.$organization->id.'/members/'.$activeMembership->id)
+            ->assertNotFound();
+
+        $this->deleteJson('/api/v1/organizations/'.$organization->id.'/members/'.$suspendedMembership->id)
+            ->assertNotFound();
+
+        $this->assertDatabaseCount('organization_members', 3)
+            ->assertDatabaseHas('organization_members', [
+                'id' => $activeMembership->id,
+                'user_id' => $activeMember->id,
+                'organization_id' => $organization->id,
+            ])->assertDatabaseHas('organization_members', [
+                'id' => $suspendedMembership->id,
+                'user_id' => $suspendedMember->id,
+                'organization_id' => $organization->id,
+            ]);
+    }
+
+    public function test_cannot_cancel_membership_belonging_to_other_organization(): void
+    {
+        $owner = User::factory()->create();
+        $organization = Organization::factory()->create();
+        $organization->members()->create([
+            'user_id' => $owner->id,
+            'role' => 'owner',
+            'status' => 'active',
+            'joined_at' => now()
+        ]);
+
+        $otherOrganization = Organization::factory()->create();
+        $otherOrganizationMember = User::factory()->create();
+        $otherOrganizationMembership = $otherOrganization->members()->create([
+            'user_id' => $otherOrganizationMember->id,
+            'role' => 'member',
+            'status' => 'invited',
+            'joined_at' => null
+        ]);
+
+        $this->actingAs($owner);
+        $this->deleteJson('/api/v1/organizations/'.$organization->id.'/members/'.$otherOrganizationMembership->id)
+            ->assertNotFound();
+
+        $this->assertDatabaseCount('organization_members', 2)
+            ->assertDatabaseHas('organization_members', [
+                'id' => $otherOrganizationMembership->id,
+                'user_id' => $otherOrganizationMember->id,
+                'organization_id' => $otherOrganization->id,
+            ]);
+    }
+
+    public function test_cannot_cancel_non_existent_membership(): void
+    {
+        $owner = User::factory()->create();
+        $organization = Organization::factory()->create();
+        $organization->members()->create([
+            'user_id' => $owner->id,
+            'role' => 'owner',
+            'status' => 'active',
+            'joined_at' => now()
+        ]);
+        $this->actingAs($owner);
+        $fakeMembershipId = 999999;
+        $this->deleteJson('/api/v1/organizations/'.$organization->id.'/members/'.$fakeMembershipId)
+            ->assertNotFound();
+    }
+
 # My Invitations
 
     public function test_user_can_retrieve_their_pending_invitations(): void
@@ -621,11 +886,14 @@ class OrganizationMemberTest extends TestCase
         ]);
     }
 
-    // Guest cannot retrieve invitations
     public function test_guest_cannot_retrieve_invitations():void
     {
         $response = $this->getJson('/api/v1/my/invitations')
         ->assertUnauthorized();
     }
+
+
+
+    # END
 
 }
